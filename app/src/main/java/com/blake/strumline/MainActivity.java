@@ -1,11 +1,15 @@
 package com.blake.strumline;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Base64;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -30,7 +34,9 @@ public class MainActivity extends Activity {
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
     private static final int MAX_BYTES = 4 * 1024 * 1024;
 
+    private static final int MIC_REQ = 7;
     private WebView web;
+    private PermissionRequest pendingMic;
     private boolean pageReady = false;
     private String pendingShare = null;
     private final ExecutorService net = Executors.newFixedThreadPool(2);
@@ -49,6 +55,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);          // saved songs and settings live in localStorage
         s.setAllowFileAccess(false);
+        s.setMediaPlaybackRequiresUserGesture(false);
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -59,6 +66,26 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView v, String url) {
                 pageReady = true;
                 deliverShare();
+            }
+        });
+        // Listen mode: the page asks for the microphone; ask Android for permission, then pass it on.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    for (String res : request.getResources()) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) {
+                            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                            } else {
+                                pendingMic = request;
+                                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_REQ);
+                            }
+                            return;
+                        }
+                    }
+                    request.deny();
+                });
             }
         });
         web.addJavascriptInterface(new Bridge(), "StrumlineNative");
@@ -151,6 +178,18 @@ public class MainActivity extends Activity {
             }
         }
         throw new Exception("too many redirects");
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        if (code == MIC_REQ && pendingMic != null) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+                pendingMic.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+            } else {
+                pendingMic.deny();
+            }
+            pendingMic = null;
+        }
     }
 
     @Override

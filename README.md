@@ -2,6 +2,9 @@
 
 Reads chord sheets the way Ultimate Guitar does: chords above the lyrics, scrolling by itself while you play.
 
+- **Listen mode**: tap Listen and play. The app hears which chord you strum, highlights it, and keeps
+  your place on screen as you move through the song. Tap any chord to jump there; adjust Sensitivity if it
+  moves on too early or too late.
 - **Auto-scroll** with 15 speed levels. Tap the sheet to start or pause; you can still drag to scroll by hand.
 - **Transpose** up or down; every chord name and diagram updates.
 - **Ukulele chord diagrams** (G C E A) for every chord in the song along the bottom; tap any chord in the sheet for a big diagram.

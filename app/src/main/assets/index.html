@@ -114,6 +114,16 @@ textarea{border:1px solid var(--line);background:var(--surface);border-radius:10
 .stepper .v small{display:block;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-family:var(--body);font-weight:600}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:99px;height:40px;padding:0 12px;font-size:13px;font-weight:600}
 .chip[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.play.listen{background:var(--surface);color:var(--accent);border:1.5px solid var(--accent)}
+.play.listen.on{background:var(--head);color:#1a1400;border-color:var(--head)}
+.listenrow{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.listenrow .hear b{font-family:var(--mono);color:var(--chord);font-size:15px;display:inline-block;min-width:3.5em}
+.listenrow .lmsg{flex-basis:100%;text-align:center}
+.listenrow .lmsg:empty{display:none}
+.meter{width:90px;height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--accent)}
+.listenrow input[type=range]{accent-color:var(--accent);width:110px}
+.ch.now{background:var(--head);color:#1a1400;outline:3px solid var(--head)}
 .pop{position:fixed;z-index:6;left:50%;transform:translateX(-50%);bottom:calc(var(--barh) + 12px);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:0 10px 30px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:4px}
 .pop b{font-family:var(--mono);font-size:20px;color:var(--chord)}
 .pop small{color:var(--muted);font-size:12px;font-family:var(--mono)}
@@ -186,7 +196,14 @@ chords sit on the line above the words"></textarea>
 
 <div class="bar" id="bar" hidden>
   <div class="strip" id="strip"></div>
+  <div class="listenrow" id="listenRow" hidden>
+    <span class="hear">Hearing <b id="hearV">–</b></span>
+    <div class="meter" aria-hidden="true"><i id="meterBar"></i></div>
+    <label for="sens">Sensitivity</label><input type="range" id="sens" min="1" max="100" value="55">
+    <span class="lmsg" id="listenMsg"></span>
+  </div>
   <div class="ctrls">
+    <button class="play listen" id="listenBtn" aria-label="Start listening"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z"/></svg><span id="listenLbl">Listen</span></button>
     <button class="play" id="scrollBtn" aria-label="Start auto-scroll"><svg viewBox="0 0 24 24" fill="currentColor" id="scrollIco"><path d="M7 4v16l13-8z"/></svg><span id="scrollLbl">Scroll</span></button>
     <div class="stepper"><button id="spDn" aria-label="Scroll slower">−</button><div class="v"><span id="spV">4</span><small>speed</small></div><button id="spUp" aria-label="Scroll faster">+</button></div>
     <div class="stepper"><button id="trDn" aria-label="Transpose down">−</button><div class="v"><span id="trV">0</span><small>key</small></div><button id="trUp" aria-label="Transpose up">+</button></div>
@@ -394,7 +411,7 @@ const getSong=id=>(tempSong&&tempSong.id===id)?tempSong:allSongs().find(s=>s.id=
 function firstChord(text){const p=parseSheet(text);if(p.meta.key)return p.meta.key;for(const l of p.lines){const s=l.c;if(s){const t=s.trim().split(/\s+/).find(x=>parseChord(x));if(t)return t;}}return"";}
 
 // ---------- views ----------
-function show(v){for(const id of["vLib","vEdit","vPlay"])$(id).hidden=id!==v;$("bar").hidden=v!=="vPlay";$("pop").hidden=true;if(v!=="vPlay")stopScroll();window.scrollTo(0,0);}
+function show(v){for(const id of["vLib","vEdit","vPlay"])$(id).hidden=id!==v;$("bar").hidden=v!=="vPlay";$("pop").hidden=true;if(v!=="vPlay"){stopScroll();if(window.__stopListen)window.__stopListen();}window.scrollTo(0,0);}
 function renderLib(){
   const q=$("q").value.trim().toLowerCase();const L=$("songList");L.textContent="";
   const list=allSongs().filter(s=>!q||(s.title+" "+(s.artist||"")).toLowerCase().includes(q));
@@ -461,6 +478,7 @@ function render(){
   $("strip").innerHTML=used.map(n=>`<button class="dg" data-c="${esc(n)}"><b>${esc(n)}</b>${diagramSVG(parseChord(n),46)}</button>`).join("");
   $("trV").textContent=(shift>0?"+":"")+shift;$("spV").textContent=speed;$("fsV").textContent=fs;$("dgBtn").setAttribute("aria-pressed",showDg);
   requestAnimationFrame(barSize);
+  if(window.__afterRender)window.__afterRender();
 }
 function barSize(){document.documentElement.style.setProperty("--barh",$("bar").offsetHeight+"px");}
 let rT=0;window.addEventListener("resize",()=>{clearTimeout(rT);rT=setTimeout(()=>{if(!$("vPlay").hidden){const y=scrollFrac();render();window.scrollTo(0,y*maxScroll());}},120)});
@@ -472,26 +490,112 @@ function showPop(n){const c=parseChord(n);if(!c)return;const f=shapeFor(c);
   $("pop").innerHTML=`<b>${esc(n)}</b>${diagramSVG(c,110)}<small>${f?"G C E A  ·  "+f.join(" "):""}</small>`;$("pop").hidden=false;
   document.querySelectorAll(".ch.on,.dg.on").forEach(e=>e.classList.remove("on"));document.querySelectorAll(`[data-c="${CSS.escape(n)}"]`).forEach(e=>e.classList.add("on"));}
 function hidePop(){$("pop").hidden=true;document.querySelectorAll(".ch.on,.dg.on").forEach(e=>e.classList.remove("on"));}
-$("sheet").addEventListener("click",e=>{const t=e.target.closest(".ch");if(t){e.stopPropagation();showPop(t.dataset.c);return;}if(!$("pop").hidden){hidePop();return;}toggleScroll();});
+$("sheet").addEventListener("click",e=>{const t=e.target.closest(".ch");
+  if(t){e.stopPropagation();if(listening){jumpTo(t);return;}showPop(t.dataset.c);return;}
+  if(!$("pop").hidden){hidePop();return;}if(!listening)toggleScroll();});
 $("strip").addEventListener("click",e=>{const t=e.target.closest(".dg");if(t){(!$("pop").hidden&&t.classList.contains("on"))?hidePop():showPop(t.dataset.c);}});
 $("pop").addEventListener("click",hidePop);
 
 // ---------- auto-scroll ----------
 let scrolling=false,raf=0,lastT=0,acc=0,wl=null;
 async function wake(on){try{if(on&&!wl&&navigator.wakeLock){wl=await navigator.wakeLock.request("screen");wl.addEventListener("release",()=>wl=null);}else if(!on&&wl){await wl.release();wl=null;}}catch(e){}}
-function pxPerSec(){return(4+speed*5)*(fs/16);}
+function pxPerSec(){return(8+speed*5)*(fs/16);}
+// Track the exact position ourselves and jump to it each frame. Nudging by 1px with scrollBy
+// gets rounded away on high-density phone screens, so the page never moved.
+const scroller=()=>document.scrollingElement||document.documentElement;
+let fpos=0,lastSet=-1;
 function step(t){
-  if(!scrolling)return;const dt=Math.min(.1,(t-lastT)/1000);lastT=t;acc+=pxPerSec()*dt;
-  if(acc>=1){const n=Math.floor(acc);acc-=n;window.scrollBy(0,n);}
-  if(scrollY>=maxScroll()-1){stopScroll();return;}
+  if(!scrolling)return;const dt=Math.min(.1,(t-lastT)/1000);lastT=t;const se=scroller();
+  if(lastSet>=0&&Math.abs(se.scrollTop-lastSet)>4)fpos=se.scrollTop; // you dragged the page: carry on from there
+  fpos+=pxPerSec()*dt;const y=Math.round(fpos);
+  if(y!==Math.round(lastSet)){se.scrollTop=y;lastSet=se.scrollTop;}
+  if(fpos>=maxScroll()){stopScroll();return;}
   raf=requestAnimationFrame(step);
 }
-function startScroll(){if(scrollY>=maxScroll()-1)window.scrollTo(0,0);scrolling=true;acc=0;lastT=performance.now();raf=requestAnimationFrame(step);wake(true);syncScroll();}
+function startScroll(){if(listening)stopListen();if(scrollY>=maxScroll()-1)window.scrollTo(0,0);fpos=scroller().scrollTop;lastSet=-1;scrolling=true;lastT=performance.now();raf=requestAnimationFrame(step);wake(true);syncScroll();}
 function stopScroll(){scrolling=false;cancelAnimationFrame(raf);wake(false);syncScroll();}
 function toggleScroll(){scrolling?stopScroll():startScroll();}
 function syncScroll(){$("scrollBtn").classList.toggle("on",scrolling);$("scrollLbl").textContent=scrolling?"Pause":"Scroll";$("scrollBtn").setAttribute("aria-label",scrolling?"Pause auto-scroll":"Start auto-scroll");
   $("scrollIco").innerHTML=scrolling?'<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>':'<path d="M7 4v16l13-8z"/>';}
-document.addEventListener("visibilitychange",()=>{if(document.hidden)stopScroll();});
+document.addEventListener("visibilitychange",()=>{if(document.hidden){stopScroll();stopListen();}});
+
+// ---------- listen mode: hear the chord you strum and follow along ----------
+// Each frame the mic's spectrum is folded into 12 pitch classes (a "chroma" vector) and compared with
+// the notes of the current chord and the next few chords in the song. When one of the next chords
+// clearly wins for a moment, that chord becomes current and its line scrolls into place.
+let listening=false,lraf=0,actx=null,analyser=null,micStream=null,fbuf=null,tbuf=null,binPc=null,binW=null,kLo=0,kHi=0;
+let seq=[],cur=0,cand=-1,candSince=0,followPos=0,followSet=-1,holdUntil=0,lastLT=0;
+function chordPcs(name){const c=parseChord(name);if(!c)return null;let iv=intervals(c.q);return iv.map(i=>(c.root+i)%12).concat([]).filter((v,i,a)=>a.indexOf(v)===i).map(pc=>({pc,w:1}));}
+function buildSeq(){
+  const els=[...$("sheet").querySelectorAll(".ch")];const out=[];
+  for(const el of els){const pcs=chordPcs(el.dataset.c);if(!pcs)continue;
+    const key=pcs.map(p=>p.pc).sort().join(",");const last=out[out.length-1];
+    if(last&&last.key===key){last.els.push(el);continue;}           // same chord again: one step
+    const t=new Array(12).fill(0);pcs.forEach(p=>t[p.pc]=p.w);const n=Math.hypot(...t);
+    out.push({name:el.dataset.c,key,els:[el],tpl:t.map(v=>v/n)});}
+  return out;
+}
+window.__afterRender=function(){seq=buildSeq();if(cur>=seq.length)cur=Math.max(0,seq.length-1);if(listening)mark();};
+function mark(){document.querySelectorAll(".ch.now").forEach(e=>e.classList.remove("now"));const g=seq[cur];if(g)g.els[0].classList.add("now");}
+function jumpTo(el){const i=seq.findIndex(g=>g.els.includes(el));if(i>=0){cur=i;cand=-1;mark();holdUntil=0;}}
+async function startListen(){
+  if(listening)return;stopScroll();
+  if(!seq.length){$("listenMsg").textContent="This song has no chords to follow.";$("listenRow").hidden=false;barSize();return;}
+  $("listenRow").hidden=false;$("listenMsg").textContent="Allow the microphone if asked…";barSize();
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error("no mic");
+    micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  }catch(e){$("listenMsg").textContent="Listen needs the microphone. It works in the Strumline Android app; here, use Scroll instead.";return;}
+  const C=window.AudioContext||window.webkitAudioContext;actx=actx||new C();if(actx.state==="suspended")await actx.resume();
+  const src=actx.createMediaStreamSource(micStream);analyser=actx.createAnalyser();analyser.fftSize=8192;analyser.smoothingTimeConstant=.6;src.connect(analyser);
+  fbuf=new Float32Array(analyser.frequencyBinCount);tbuf=new Float32Array(2048);
+  const hz=actx.sampleRate/analyser.fftSize;kLo=Math.ceil(180/hz);kHi=Math.min(fbuf.length-1,Math.floor(2200/hz));binPc=new Int8Array(kHi+1);binW=new Float32Array(kHi+1);
+  for(let k=kLo;k<=kHi;k++){const midi=69+12*Math.log2(k*hz/440),r=Math.round(midi),dev=Math.abs(midi-r);binPc[k]=((r%12)+12)%12;binW[k]=dev<.4?1-dev/.4:0;}
+  listening=true;cand=-1;holdUntil=0;followSet=-1;followPos=scroller().scrollTop;
+  if(cur>=seq.length)cur=0;
+  // start from the first chord that's on screen
+  const onScreen=seq.findIndex(g=>g.els[0].getBoundingClientRect().top>60);if(onScreen>0&&cur===0)cur=onScreen;
+  mark();$("listenMsg").textContent="Strum the highlighted chord. Tap any chord to jump there.";syncListen();wake(true);lastLT=performance.now();lraf=requestAnimationFrame(listenTick);
+}
+function stopListen(){if(!listening&&!micStream){$("listenRow").hidden=true;return;}listening=false;cancelAnimationFrame(lraf);
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;}analyser=null;
+  document.querySelectorAll(".ch.now").forEach(e=>e.classList.remove("now"));$("listenRow").hidden=true;$("meterBar").style.width="0";$("hearV").textContent="–";syncListen();wake(false);requestAnimationFrame(barSize);}
+window.__stopListen=stopListen;
+function syncListen(){$("listenBtn").classList.toggle("on",listening);$("listenLbl").textContent=listening?"Stop":"Listen";$("listenBtn").setAttribute("aria-label",listening?"Stop listening":"Start listening");}
+function listenTick(now){
+  if(!listening||!analyser)return;const dt=Math.min(.1,(now-lastLT)/1000);lastLT=now;
+  analyser.getFloatTimeDomainData(tbuf);let e=0;for(let i=0;i<tbuf.length;i++)e+=tbuf[i]*tbuf[i];const rms=Math.sqrt(e/tbuf.length);
+  $("meterBar").style.width=Math.min(100,rms*500)+"%";
+  const sens=+$("sens").value;const gate=.004+(100-sens)/100*.03;
+  if(rms>gate){
+    analyser.getFloatFrequencyData(fbuf);const ch=new Array(12).fill(0);
+    for(let k=kLo;k<=kHi;k++){const w=binW[k];if(!w)continue;const m=Math.pow(10,fbuf[k]/20);ch[binPc[k]]+=m*m*w;}
+    for(let i=0;i<12;i++)ch[i]=Math.sqrt(ch[i]); // compress so one loud doubled note can't drown the others
+    const n=Math.hypot(...ch)||1;for(let i=0;i<12;i++)ch[i]/=n;
+    const score=g=>g.tpl.reduce((s,v,i)=>s+v*ch[i],0);
+    const lo=cur,hi=Math.min(seq.length-1,cur+3);let best=lo,bs=-1;const sc=[];
+    for(let j=lo;j<=hi;j++){sc[j]=score(seq[j]);if(sc[j]>bs){bs=sc[j];best=j;}}
+    $("hearV").textContent=bs>.45?seq[best].name:"…";
+    const need=.62-(sens-50)/100*.16,margin=.05,holdMs=380-sens*2;
+    if(best>cur&&bs>need&&bs-sc[cur]>margin){
+      if(cand!==best){cand=best;candSince=now;}
+      else if(now-candSince>holdMs){cur=best;cand=-1;mark();}
+    }else cand=-1;
+  }else{$("hearV").textContent="–";cand=-1;}
+  // ease the current chord's line to about a third of the way down the screen
+  const se=scroller();const g=seq[cur];
+  if(g){
+    if(followSet>=0&&Math.abs(se.scrollTop-followSet)>4){holdUntil=now+2500;followPos=se.scrollTop;} // you scrolled by hand: wait a moment
+    if(now>holdUntil){
+      const target=Math.max(0,Math.min(maxScroll(),g.els[0].getBoundingClientRect().top+se.scrollTop-innerHeight*.3));
+      followPos+=(target-followPos)*Math.min(1,dt*3.5);const y=Math.round(followPos);
+      if(Math.abs(y-se.scrollTop)>=1){se.scrollTop=y;}
+    }else followPos=se.scrollTop;
+    followSet=se.scrollTop;
+  }
+  lraf=requestAnimationFrame(listenTick);
+}
+$("listenBtn").onclick=()=>{listening?stopListen():startListen();};
 document.addEventListener("keydown",e=>{if($("vPlay").hidden||/INPUT|TEXTAREA/.test(e.target.tagName))return;if(e.code==="Space"){e.preventDefault();toggleScroll();}});
 
 // ---------- controls ----------
