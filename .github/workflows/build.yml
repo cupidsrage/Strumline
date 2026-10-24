@@ -22,7 +22,7 @@ jobs:
         if: env.KS_B64 != ''
         run: |
           echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/strumline.keystore"
-          STRUMLINE_KEYSTORE_FILE="$RUNNER_TEMP/strumline.keystore" ./gradlew assembleRelease -PversionCode=${{ github.run_number }}
+          STRUMLINE_KEYSTORE_FILE="$RUNNER_TEMP/strumline.keystore" ./gradle-run.sh assembleRelease -PversionCode=${{ github.run_number }}
           cp app/build/outputs/apk/release/app-release.apk strumline.apk
       - name: Publish release
         if: env.KS_B64 != ''
@@ -38,7 +38,7 @@ jobs:
         if: env.KS_B64 == ''
         run: |
           echo "::warning::Add the STRUMLINE_KEYSTORE and STRUMLINE_KS_PASS secrets to turn on in-app updates."
-          ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
+          ./gradle-run.sh assembleDebug -PversionCode=${{ github.run_number }}
           cp app/build/outputs/apk/debug/app-debug.apk strumline.apk
 
       - uses: actions/upload-artifact@v4

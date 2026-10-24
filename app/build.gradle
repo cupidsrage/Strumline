@@ -29,7 +29,7 @@ android {
         release {
             minifyEnabled false
             // Signed with the permanent key when it's available, otherwise with the debug key (local builds).
-            signingConfig (ksFile && ksPass) ? signingConfigs.release : signingConfigs.debug
+            signingConfig = (ksFile && ksPass) ? signingConfigs.release : signingConfigs.debug
         }
     }
     compileOptions {
