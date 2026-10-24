@@ -32,3 +32,11 @@ phone plugged in (USB debugging on), or Build → Build APK(s).
 ## Changing the app
 
 The whole app is one file: `app/src/main/assets/index.html`. Edit it and rebuild.
+
+## Updates
+
+Every push to `main` builds a signed release (tagged `build-N`). When the app opens, it checks
+for a newer release and offers to install it. This needs two repository secrets
+(Settings → Secrets and variables → Actions): `STRUMLINE_KEYSTORE` (the signing key, base64) and
+`STRUMLINE_KS_PASS` (its password). Keep a copy of both: without that exact key, Android won't
+accept updates over the installed app.

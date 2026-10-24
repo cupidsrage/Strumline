@@ -37,6 +37,7 @@ public class MainActivity extends Activity {
     private static final int MIC_REQ = 7;
     private WebView web;
     private PermissionRequest pendingMic;
+    private Updater updater;
     private boolean pageReady = false;
     private String pendingShare = null;
     private final ExecutorService net = Executors.newFixedThreadPool(2);
@@ -93,6 +94,7 @@ public class MainActivity extends Activity {
         setContentView(web);
         handleShare(getIntent());
         web.loadUrl(START_URL);
+        updater = new Updater(this);
     }
 
     @Override
@@ -200,6 +202,6 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onPause() { super.onPause(); web.onPause(); }
-    @Override protected void onResume() { super.onResume(); web.onResume(); }
+    @Override protected void onResume() { super.onResume(); web.onResume(); if (updater != null) updater.onResume(); }
     @Override protected void onDestroy() { net.shutdownNow(); super.onDestroy(); }
 }

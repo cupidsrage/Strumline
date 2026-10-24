@@ -1,5 +1,10 @@
 plugins { id 'com.android.application' }
 
+// The build number from GitHub Actions becomes the version, so the app can tell when a newer build exists.
+def buildNumber = (project.findProperty('versionCode') ?: '1').toString().toInteger()
+def ksFile = System.getenv('STRUMLINE_KEYSTORE_FILE')
+def ksPass = System.getenv('STRUMLINE_KS_PASS')
+
 android {
     namespace 'com.blake.strumline'
     compileSdk 34
@@ -7,11 +12,25 @@ android {
         applicationId 'com.blake.strumline'
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode buildNumber
+        versionName "1.${buildNumber}"
+    }
+    signingConfigs {
+        release {
+            if (ksFile && ksPass) {
+                storeFile file(ksFile)
+                storePassword ksPass
+                keyAlias 'strumline'
+                keyPassword ksPass
+            }
+        }
     }
     buildTypes {
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+            // Signed with the permanent key when it's available, otherwise with the debug key (local builds).
+            signingConfig (ksFile && ksPass) ? signingConfigs.release : signingConfigs.debug
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -21,4 +40,5 @@ android {
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'androidx.core:core:1.13.1'
 }

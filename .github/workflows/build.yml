@@ -1,15 +1,47 @@
 name: Build APK
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KS_B64: ${{ secrets.STRUMLINE_KEYSTORE }}
+      STRUMLINE_KS_PASS: ${{ secrets.STRUMLINE_KS_PASS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v3
-      - run: ./gradlew assembleDebug
+
+      # With the signing key: build a signed release and publish it. The app sees it and offers to update.
+      - name: Build signed release
+        if: env.KS_B64 != ''
+        run: |
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/strumline.keystore"
+          STRUMLINE_KEYSTORE_FILE="$RUNNER_TEMP/strumline.keystore" ./gradlew assembleRelease -PversionCode=${{ github.run_number }}
+          cp app/build/outputs/apk/release/app-release.apk strumline.apk
+      - name: Publish release
+        if: env.KS_B64 != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):' > notes.txt
+          gh release create "build-${{ github.run_number }}" strumline.apk \
+            --title "Strumline build ${{ github.run_number }}" --notes-file notes.txt --latest
+
+      # Without it: a test build only (no in-app updates).
+      - name: Build test APK (signing key not set up)
+        if: env.KS_B64 == ''
+        run: |
+          echo "::warning::Add the STRUMLINE_KEYSTORE and STRUMLINE_KS_PASS secrets to turn on in-app updates."
+          ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
+          cp app/build/outputs/apk/debug/app-debug.apk strumline.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: strumline-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: strumline.apk
