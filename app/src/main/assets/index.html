@@ -136,9 +136,9 @@ textarea{border:1px solid var(--line);background:var(--surface);border-radius:10
     <div><div class="eyebrow">Ukulele chords &amp; tabs</div><h1>Strumline</h1></div>
     <div class="tuning">Tuning <b>G C E A</b></div>
   </div>
-  <p class="hint">Find a song and the sheet scrolls by itself while you play. Transpose it, resize it, and see the ukulele shape for every chord.</p>
+  <p class="hint">Search opens Strumline's browser: pick any chord site, open a song and tap Add to Strumline. The sheet then scrolls by itself while you play. Transpose it, resize it, and see the ukulele shape for every chord.</p>
   <form class="linkrow" id="findForm" role="search">
-    <input type="search" id="findIn" placeholder="Search for a song or artist" aria-label="Search for a song or artist" autocomplete="off" enterkeyhint="search">
+    <input type="search" id="findIn" placeholder="Song name, e.g. Riptide" aria-label="Search for a song or artist" autocomplete="off" enterkeyhint="search">
     <button class="btn primary" id="findBtn" type="submit">Find</button>
   </form>
   <div class="status" id="findStatus" role="status"></div>
@@ -609,93 +609,36 @@ $("fsUp").onclick=()=>{const y=scrollFrac();fs=Math.min(30,fs+1);persist();rende
 $("dgBtn").onclick=()=>{showDg=!showDg;persist();render();};
 $("plBack").onclick=()=>{renderLib();show("vLib")};
 $("plEdit").onclick=()=>{if(song)openEditor(song.id)};
-// ---------- import from a link (Android app does the download) ----------
-const pending={};let fid=0;
-function nativeFetch(url){return new Promise((res,rej)=>{const id="f"+(++fid);pending[id]={res,rej};
-  try{window.StrumlineNative.fetchUrl(url,id);}catch(e){delete pending[id];rej(e);return;}
-  setTimeout(()=>{if(pending[id]){delete pending[id];rej(new Error("The site took too long to answer."));}},25000);});}
-window.__fetchDone=function(id,ok,b64){const p=pending[id];if(!p)return;delete pending[id];
-  const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));const txt=new TextDecoder("utf-8").decode(bytes);ok?p.res(txt):p.rej(new Error(txt));};
-function deepFind(o,test,d){d=d||0;if(!o||typeof o!=="object"||d>14)return null;for(const k in o){const v=o[k];if(test(k,v))return v;if(v&&typeof v==="object"){const r=deepFind(v,test,d+1);if(r!=null)return r;}}return null;}
-function cleanTitle(t){const m=t.match(/^(.*?)\s+(?:ukulele\s+)?(?:chords|tabs?|bass|ukulele)\s*(?:\(ver\s*\d+\))?\s+by\s+(.*?)\s*(?:@|\||-\s*ultimate|$)/i);return m?{title:m[1].trim(),artist:m[2].trim()}:{title:t.replace(/\s*[@|].*$/,"").trim(),artist:""};}
-function extractSheet(html){
-  const doc=new DOMParser().parseFromString(html,"text/html");
-  const blobs=[];doc.querySelectorAll("[data-content]").forEach(e=>blobs.push(e.getAttribute("data-content")));
-  doc.querySelectorAll('script[type="application/json"],script#__NEXT_DATA__').forEach(e=>blobs.push(e.textContent));
-  for(const b of blobs){let o;try{o=JSON.parse(b);}catch(e){continue;}
-    const content=deepFind(o,(k,v)=>k==="content"&&typeof v==="string"&&/\[ch\]|\[tab\]/.test(v));
-    if(content)return{text:content.replace(/\r/g,""),title:deepFind(o,(k,v)=>k==="song_name"&&typeof v==="string")||"",artist:deepFind(o,(k,v)=>k==="artist_name"&&typeof v==="string")||""};}
-  const og=(doc.querySelector('meta[property="og:title"]')||{}).content||doc.title||"";const ct=cleanTitle(og);
-  let best="";doc.querySelectorAll("pre").forEach(p=>{const t=p.textContent;if(t.length>best.length)best=t;});
-  if(best.trim().length>40)return{text:best.replace(/\r/g,""),title:ct.title,artist:ct.artist};
-  return null;
+// ---------- finding songs: Strumline's built-in browser (Android app) ----------
+// You browse any chord site yourself. The app's "Add to Strumline" button reads the song on the page
+// you're looking at and hands it back here through window.__importSheet.
+const hasBrowser=()=>!!(window.StrumlineNative&&window.StrumlineNative.openBrowser);
+function openBrowser(url){if(!hasBrowser())return false;window.StrumlineNative.openBrowser(url);return true;}
+function findSongs(q){
+  const st=$("findStatus");q=q.trim();if(!q)return;st.textContent="";
+  if(/^https?:\/\//.test(q)){importLink(q);return;}
+  const url="https://www.google.com/search?q="+encodeURIComponent(q+" ukulele chords");
+  if(openBrowser(url))return;
+  st.className="status";st.innerHTML=`Searching inside Strumline works in the Android app. Here, <a href="${url}" target="_blank" rel="noopener">search the web for “${esc(q)} ukulele chords”</a>, copy the chords from a song page, then use Paste chords.`;
 }
-async function fetchSong(url){
-  const html=await nativeFetch(url);const got=extractSheet(html);
-  if(!got||!parseSheet(got.text).lines.some(l=>l.c))throw new Error("I couldn't find chords on that page. Open it in your browser, copy the chords and use Paste chords instead.");
-  return{title:got.title||"Untitled",artist:got.artist||"",text:got.text,src:url};
-}
-async function importLink(url){
-  const st=$("linkStatus");url=(url||"").trim();const m=url.match(/https?:\/\/\S+/);
+function importLink(url){
+  const st=$("linkStatus");url=(url||"").trim();const m=url.match(/https?:\/\/\S+/);st.textContent="";
   if(!m){st.className="status err";st.textContent="That doesn't look like a web address. It should start with https://";return;}
-  url=m[0];
-  if(!window.StrumlineNative){st.className="status err";st.textContent="Importing from a link works in the Strumline Android app. Here, open the page, copy the chords and use Paste chords instead.";return;}
-  st.className="status";st.textContent="Getting the song…";$("linkBtn").disabled=true;
-  try{
-    const s=Object.assign({id:"u-"+Date.now()},await fetchSong(url));
-    store.songs.unshift(s);save();$("linkIn").value="";st.textContent="";renderLib();openSheet(s.id);
-  }catch(e){st.className="status err";st.textContent=e.message||"Couldn't get that page.";}
-  finally{$("linkBtn").disabled=false;}
+  if(openBrowser(m[0])){$("linkIn").value="";return;}
+  st.className="status err";st.textContent="Opening links works in the Strumline Android app. Here, open the page, copy the chords and use Paste chords.";
 }
-
-// ---------- find songs online (Ultimate Guitar search, through the Android app) ----------
-function parseResults(html){
-  const doc=new DOMParser().parseFromString(html,"text/html");const blobs=[];
-  doc.querySelectorAll("[data-content]").forEach(e=>blobs.push(e.getAttribute("data-content")));
-  doc.querySelectorAll('script[type="application/json"],script#__NEXT_DATA__').forEach(e=>blobs.push(e.textContent));
-  const found=[];
-  const walk=(o,d)=>{if(!o||typeof o!=="object"||d>14)return;
-    if(Array.isArray(o)){for(const x of o){if(x&&typeof x==="object"&&typeof x.tab_url==="string"&&x.song_name)found.push(x);else walk(x,d+1);}return;}
-    for(const k in o)walk(o[k],d+1);};
-  for(const b of blobs){try{walk(JSON.parse(b),0);}catch(e){}}
-  const seen=new Set();
-  return found.filter(r=>{const t=String(r.type||"");if(/pro|official|video|power|bass|drum|guitar pro/i.test(t)||(r.marketing_type&&/pro|official/i.test(r.marketing_type)))return false;
-      if(!/chord|tab|ukulele/i.test(t))return false;if(seen.has(r.tab_url))return false;seen.add(r.tab_url);return true;})
-    .map(r=>({title:r.song_name,artist:r.artist_name||"",type:String(r.type),url:r.tab_url,rating:+r.rating||0,votes:+r.votes||0,ver:r.version||1,uke:/ukulele/i.test(String(r.type))}))
-    .sort((a,b)=>(b.uke-a.uke)||((/chord/i.test(b.type))-(/chord/i.test(a.type)))||(b.rating*Math.log10(b.votes+10)-a.rating*Math.log10(a.votes+10)));
-}
-async function findSongs(q){
-  const st=$("findStatus"),R=$("results");q=q.trim();if(!q)return;
-  if(/^https?:\/\//.test(q)){$("linkIn").value=q;importLink(q);return;}
-  if(!window.StrumlineNative){st.className="status err";st.textContent="Song search works in the Strumline Android app. Here, look the song up in your browser, copy the chords and use Paste chords.";R.hidden=true;return;}
-  st.className="status";st.textContent="Searching…";$("findBtn").disabled=true;
-  try{
-    const html=await nativeFetch("https://www.ultimate-guitar.com/search.php?search_type=title&value="+encodeURIComponent(q));
-    const list=parseResults(html).slice(0,40);
-    R.textContent="";
-    if(!list.length){st.className="status err";st.textContent="No chord sheets found for “"+q+"”. Try the song title on its own, or check the spelling.";R.hidden=true;return;}
-    st.textContent=list.length+" version"+(list.length>1?"s":"")+" found. Ukulele chords are listed first.";
-    for(const r of list){const b=document.createElement("button");b.className="res";
-      b.innerHTML=`<span class="t">${esc(r.title)}<span class="tag${r.uke?" uke":""}">${esc(r.type)}</span></span><span class="r"><b>${r.rating?r.rating.toFixed(1)+" ★":"–"}</b>${r.votes.toLocaleString()} votes</span><span class="m">${esc(r.artist)}${r.ver>1?" · version "+r.ver:""}</span>`;
-      b.onclick=()=>openResult(r,b);R.appendChild(b);}
-    R.hidden=false;
-  }catch(e){st.className="status err";st.textContent=e.message||"Search didn't work.";}
-  finally{$("findBtn").disabled=false;}
-}
-async function openResult(r,btn){
-  const st=$("findStatus");btn.classList.add("busy");st.className="status";st.textContent="Opening "+r.title+"…";
-  try{const got=await fetchSong(r.url);tempSong=Object.assign({id:"t-"+Date.now(),temp:true},got,{title:got.title&&got.title!=="Untitled"?got.title:r.title,artist:got.artist||r.artist});st.textContent="";openSheet(tempSong.id);}
-  catch(e){st.className="status err";st.textContent=e.message||"Couldn't open that one. Try another version.";}
-  finally{btn.classList.remove("busy");}
-}
+window.__importSheet=function(got){
+  if(!got||!got.text)return;const p=parseSheet(got.text);
+  tempSong={id:"t-"+Date.now(),temp:true,title:got.title||p.meta.title||"Untitled",artist:got.artist||p.meta.artist||"",text:got.text,src:got.url||""};
+  openSheet(tempSong.id);
+};
 $("findForm").addEventListener("submit",e=>{e.preventDefault();$("findIn").blur();findSongs($("findIn").value);});
 $("plSave").onclick=()=>{if(!song||!song.temp)return;const s={id:"u-"+Date.now(),title:song.title,artist:song.artist,text:song.text,src:song.src};
   store.songs.unshift(s);store.prefs[s.id]={shift,speed};save();tempSong=null;song=s;$("plSave").textContent="Saved";$("plSave").disabled=true;$("plEdit").hidden=false;renderLib();};
 $("linkForm").addEventListener("submit",e=>{e.preventDefault();importLink($("linkIn").value);});
 // called by the Android app when a link or text is shared to Strumline
-window.__importShared=function(text){text=String(text||"");
-  if(/https?:\/\//.test(text)){show("vLib");document.querySelector("details.more").open=true;$("linkIn").value=text.match(/https?:\/\/\S+/)[0];importLink(text);}
-  else if(text.trim()){openEditor(null);$("edText").value=text;}};
+window.__importShared=function(text){text=String(text||"");const m=text.match(/https?:\/\/\S+/);
+  if(m){show("vLib");importLink(m[0]);}else if(text.trim()){openEditor(null);$("edText").value=text;}};
 
 window.__back=function(){if(!$("vPlay").hidden){$("plBack").click();return true;}if(!$("vEdit").hidden){$("edBack").click();return true;}return false;};
 

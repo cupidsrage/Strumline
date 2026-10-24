@@ -9,10 +9,8 @@ Reads chord sheets the way Ultimate Guitar does: chords above the lyrics, scroll
 - **Transpose** up or down; every chord name and diagram updates.
 - **Ukulele chord diagrams** (G C E A) for every chord in the song along the bottom; tap any chord in the sheet for a big diagram.
 - **Text size** control, light and dark mode, and the screen stays on.
-- **Song search**: type a song or artist and tap Find. Matching versions from Ultimate Guitar are listed,
-  ukulele chords first, then by rating. Tap one to try it; tap Save to keep it in My songs.
-- **Import from a link**: paste a song's web address (Ultimate Guitar works) and tap Import, or use
-  Share → Strumline from Chrome or the Ultimate Guitar app.
+- **Find songs on any site**: search opens Strumline's built-in browser. Pick any chord site, open a song,
+  and tap **Add to Strumline** to bring it into the player. Links and Share → Strumline open there too.
 - **Or paste the chords**: copy a sheet from Ultimate Guitar or any site and paste it in. Chords-over-lyrics, [Verse]/[Chorus] labels,
   tab blocks and ChordPro (`[C]words [G]like this`) are all understood. Songs are saved on the phone.
 
