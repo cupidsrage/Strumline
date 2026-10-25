@@ -4,9 +4,16 @@
   var RE = /^\(?([A-G])([#b]?)((?:maj|min|mM|m|M|dim|aug|sus|add|\+|°|ø|o)?\d{0,2}(?:(?:sus|add|maj|M|b|#|\+|-)\d{1,2})*)(?:\/([A-G])([#b]?))?\)?$/;
   var JUNK = /^(\|+|-+|x\d+|\(x\d+\)|\d+x|\/+|\.+|\(|\)|%|:|\*+|\|:|:\|)$/i;
   function clean(s) { return (s || "").replace(/ /g, " ").replace(/\r/g, ""); }
+  var ANN = /^(hold|holds|held|let|ring|rings|ringing|stop|stops|pause|mute|muted|tacet|fade|fades|out|slow|slowly|fast|end|single|once|strum|strums|strummed|down|up|palm|break|riff|then|and|to|bars?|beats?|n\.?c\.?|\*+|~+|!+|-+>|>|<|\.{2,})$/i;
+  function chordTok(x) { return RE.test(x.replace(/[*~!.,;:]+$/, "")) || /^N\.?C\.?$/i.test(x); }
+  // chords, possibly with playing notes like "(hold)" or "let ring" mixed in
   function isChordLine(l) {
-    var t = l.trim().split(/\s+/).filter(function (x) { return x && !JUNK.test(x); });
-    return t.length > 0 && t.every(function (x) { return RE.test(x) || /^N\.?C\.?$/i.test(x); });
+    var bare = l.replace(/\(([^)]*)\)/g, function (m, inner) {
+      var w = inner.trim().split(/\s+/);
+      return inner.trim() && w.every(function (x) { return chordTok(x) || JUNK.test(x); }) ? m : new Array(m.length + 1).join(" ");
+    });
+    var t = bare.trim().split(/\s+/).filter(function (x) { return x && !JUNK.test(x) && !ANN.test(x); });
+    return t.length > 0 && t.every(chordTok);
   }
   function hasInline(l) {
     var m = l.match(/\[([^\]]+)\]/g);
