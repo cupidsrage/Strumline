@@ -124,6 +124,11 @@ textarea{border:1px solid var(--line);background:var(--surface);border-radius:10
 .meter i{display:block;height:100%;width:0;background:var(--accent)}
 .listenrow input[type=range]{accent-color:var(--accent);width:110px}
 .ch.now{background:var(--head);color:#1a1400;outline:3px solid var(--head)}
+.ch{position:relative}
+.ch.now[data-pass]::after{content:attr(data-pass);position:absolute;left:calc(100% + 4px);top:-1.05em;font-family:var(--body);font-size:.58em;font-weight:700;
+  line-height:1;padding:2px 5px;border-radius:99px;background:var(--accent);color:var(--accent-ink);white-space:nowrap;pointer-events:none}
+.listenrow .pass{font-weight:700;color:var(--accent)}
+.listenrow .pass:empty{display:none}
 .pop{position:fixed;z-index:6;left:50%;transform:translateX(-50%);bottom:calc(var(--barh) + 12px);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:0 10px 30px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:4px}
 .pop b{font-family:var(--mono);font-size:20px;color:var(--chord)}
 .pop small{color:var(--muted);font-size:12px;font-family:var(--mono)}
@@ -198,6 +203,7 @@ chords sit on the line above the words"></textarea>
   <div class="strip" id="strip"></div>
   <div class="listenrow" id="listenRow" hidden>
     <span class="hear">Hearing <b id="hearV">–</b></span>
+    <span class="pass" id="passV"></span>
     <div class="meter" aria-hidden="true"><i id="meterBar"></i></div>
     <label for="sens">Sensitivity</label><input type="range" id="sens" min="1" max="100" value="55">
     <span class="lmsg" id="listenMsg"></span>
@@ -228,7 +234,12 @@ const CHORD_RE=/^([A-G])([#b]?)((?:maj|min|mM|m|M|dim|aug|sus|add|\+|°|ø|o)?\d
 function parseChord(t){const s=t.replace(/^\(|\)$/g,"");const m=s.match(CHORD_RE);if(!m)return null;
   return{root:(PC[m[1]]+(m[2]==="#"?1:m[2]==="b"?-1:0)+12)%12,flat:m[2]==="b",q:m[3],bass:m[4]?(PC[m[4]]+(m[5]==="#"?1:m[5]==="b"?-1:0)+12)%12:null};}
 const isChord=t=>!!parseChord(t)||/^N\.?C\.?$/i.test(t);
-const JUNK=/^(\|+|-+|x\d+|\(x\d+\)|\d+x|\/+|\.+|\(|\)|%|:|\*+|\|:|:\||riff|>|→)$/i;
+// "x2", "(x2)", "2x", "x 2", "2 times" at the end of a line or section label
+function repCount(s){if(!s)return 1;const m=String(s).trim().match(/(?:^|[\s(\[])(?:(?:x|×)\s?(\d{1,2})|(\d{1,2})\s?(?:x|×|times))[\)\]]?\s*:?$/i);
+  const n=m?+(m[1]||m[2]):1;return n>=2&&n<=16?n:1;}
+// a line that is only a repeat marker, e.g. "x2", "(Repeat x2)", "repeat 3 times"
+const REP_LINE=/^\s*[\(\[]?\s*(?:repeat|play)?\s*(?:(?:x|×)\s?\d{1,2}|\d{1,2}\s?(?:x|×|times))\s*[\)\]]?\s*$/i;
+const JUNK=/^(\|+|-+|\(?[x×]\d+\)?|\(?\d+[x×]\)?|\(x|\d\)|\/+|\.+|\(|\)|%|:|\*+|\|:|:\||riff|>|→)$/i;
 function nameOf(c,shift,flats){const r=(c.root+shift+12)%12;const tbl=shift===0?(c.flat?FLAT:SHARP):(flats?FLAT:NICE);
   let s=tbl[r]+c.q;if(c.bass!==null)s+="/"+tbl[(c.bass+shift+12)%12];return s;}
 function transposeTok(t,shift,flats){if(!shift)return t;const pre=t.startsWith("(")?"(":"",post=t.endsWith(")")?")":"";const c=parseChord(t);return c?pre+nameOf(c,shift,flats)+post:t;}
@@ -290,7 +301,7 @@ function parseSheet(text){
       continue;}
     if(!ln.trim()){raw.push({k:"gap"});continue;}
     const sec=ln.match(/^\s*\[([^\]]+)\]\s*$/);if(sec&&!isChord(sec[1].trim())){raw.push({k:"sec",l:sec[1].trim()});continue;}
-    if(/^\s*(intro|verse|chorus|pre-?chorus|bridge|outro|interlude|solo|instrumental|refrain|hook|coda|ending)\b[^a-z]{0,12}:?\s*$/i.test(ln)){raw.push({k:"sec",l:ln.trim().replace(/:$/,"")});continue;}
+    if(/^\s*(intro|verse|chorus|pre-?chorus|bridge|outro|interlude|solo|instrumental|refrain|hook|coda|ending)\b[^a-z]{0,12}(?:(?:x|×)\s?\d{1,2}|\d{1,2}\s?(?:x|×|times))?[^a-z]{0,4}:?\s*$/i.test(ln)){raw.push({k:"sec",l:ln.trim().replace(/:$/,"")});continue;}
     if(/^\s*[A-Ga-g][#b]?\s*\|.*[-|]/.test(ln)||/^\s*\|?-{4,}/.test(ln)){raw.push({k:"tab",l:ln});continue;}
     // ChordPro inline
     const br=[...ln.matchAll(/\[([^\]]+)\]/g)];
@@ -455,19 +466,33 @@ function openSheet(id){
   show("vPlay");render();
 }
 function charWidth(){const s=document.createElement("span");s.style.cssText="position:absolute;visibility:hidden;white-space:pre;font-family:var(--mono);font-weight:800;font-size:"+fs+"px";s.textContent="M".repeat(40);document.body.appendChild(s);const w=s.getBoundingClientRect().width/40;s.remove();return w||fs*.6;}
+let repInfo={lineRep:[],blocks:[]};
 function render(){
   if(!song)return;document.documentElement.style.setProperty("--fs",fs+"px");
   const W=Math.max(16,Math.floor($("sheet").clientWidth/charWidth())-1);
   const used=[];const addUsed=line=>{for(const t of line.trim().split(/\s+/)){const c=parseChord(t);if(c){const n=t.replace(/^\(|\)$/g,"");if(!used.includes(n))used.push(n);}}};
   let h="",tabBuf=[];const flush=()=>{if(tabBuf.length){h+=`<div class="tabblk">${esc(tabBuf.join("\n"))}</div>`;tabBuf=[];}};
+  // Repeats for Listen mode. lineRep: chord line i is played N times ("Am F C G x2").
+  // blocks: lines [start,end) are played N times ("[Chorus x2]", or a line that just says "x2").
+  const lineRep=[],blocks=[];let blockStart=0,lastBlock=null,secOpen=null;
   for(const ln of parsed.lines){
     if(ln.k==="tab"){tabBuf.push(ln.l);continue;}flush();
-    if(ln.k==="sec")h+=`<div class="sec">${esc(ln.l)}</div>`;
-    else if(ln.k==="gap")h+=`<div class="gap"></div>`;
-    else if(ln.k==="lyric")h+=`<div class="ly wrap">${esc(ln.l)}</div>`;
-    else{const c=transposeLine(ln.c,shift,flats);addUsed(c);
-      for(const[cc,ll] of wrapPair(c,ln.k==="pair"?ln.l:"",W))h+=`<div class="pair"><div class="cl">${chordSpans(cc)}</div>${ln.k==="pair"?`<div class="ly">${esc(ll)||" "}</div>`:""}</div>`;}
+    if(ln.k==="sec"){
+      if(secOpen&&lineRep.length>secOpen.start)blocks.push({start:secOpen.start,end:lineRep.length,rep:secOpen.rep});
+      const r=repCount(ln.l);secOpen=r>1?{start:lineRep.length,rep:r}:null;blockStart=lineRep.length;lastBlock=null;
+      h+=`<div class="sec">${esc(ln.l)}</div>`;}
+    else if(ln.k==="gap"){if(lineRep.length>blockStart)lastBlock={start:blockStart,end:lineRep.length};blockStart=lineRep.length;h+=`<div class="gap"></div>`;}
+    else if(ln.k==="lyric"){
+      if(REP_LINE.test(ln.l)){const r=repCount(ln.l.replace(/[\)\]]\s*$/,"").replace(/^\s*[\(\[]/,""))||1;
+        const b=lineRep.length>blockStart?{start:blockStart,end:lineRep.length}:lastBlock;
+        if(b&&r>1)blocks.push({start:b.start,end:b.end,rep:r});}
+      h+=`<div class="ly wrap">${esc(ln.l)}</div>`;}
+    else{const c=transposeLine(ln.c,shift,flats);addUsed(c);const li=lineRep.length;
+      lineRep.push(Math.max(repCount(ln.c),ln.k==="pair"?repCount(ln.l):1));
+      for(const[cc,ll] of wrapPair(c,ln.k==="pair"?ln.l:"",W))h+=`<div class="pair" data-li="${li}"><div class="cl">${chordSpans(cc)}</div>${ln.k==="pair"?`<div class="ly">${esc(ll)||" "}</div>`:""}</div>`;}
   }
+  if(secOpen&&lineRep.length>secOpen.start)blocks.push({start:secOpen.start,end:lineRep.length,rep:secOpen.rep});
+  repInfo={lineRep,blocks};
   flush();$("sheet").innerHTML=h||'<div class="empty">This song is empty. Tap Edit to paste the chords.</div>';
   // meta
   const m=[];const key=parsed.meta.key;if(key){m.push(`<span>Key <b>${esc(shift?transposeTok(key,shift,flats):key)}</b></span>`);}
@@ -527,17 +552,31 @@ let listening=false,lraf=0,actx=null,analyser=null,micStream=null,fbuf=null,tbuf
 let seq=[],cur=0,cand=-1,candSince=0,followPos=0,followSet=-1,holdUntil=0,lastLT=0;
 function chordPcs(name){const c=parseChord(name);if(!c)return null;let iv=intervals(c.q);return iv.map(i=>(c.root+i)%12).concat([]).filter((v,i,a)=>a.indexOf(v)===i).map(pc=>({pc,w:1}));}
 function buildSeq(){
-  const els=[...$("sheet").querySelectorAll(".ch")];const out=[];
-  for(const el of els){const pcs=chordPcs(el.dataset.c);if(!pcs)continue;
+  // chords of each sheet line, in order
+  const n=repInfo.lineRep.length,units=Array.from({length:n},()=>[]);
+  for(const el of $("sheet").querySelectorAll(".ch")){const pd=el.closest(".pair");const li=pd?+pd.dataset.li:NaN;
+    if(isNaN(li)||!chordPcs(el.dataset.c))continue;units[li].push({el,name:el.dataset.c,pass:null});}
+  const copies=(list,N)=>{const out=[];for(let k=1;k<=N;k++)for(const it of list)out.push({el:it.el,name:it.name,pass:it.pass||(N>1?k+"/"+N:null)});return out;};
+  for(let i=0;i<n;i++)units[i]=copies(units[i],repInfo.lineRep[i]);
+  // repeated blocks, smallest first so a repeat inside a repeated section still works
+  for(const b of repInfo.blocks.slice().sort((a,b)=>(a.end-a.start)-(b.end-b.start))){
+    const inner=[];for(let i=b.start;i<b.end;i++){inner.push(...units[i]);units[i]=[];}
+    units[b.start]=copies(inner,b.rep);}
+  const out=[];
+  for(const it of units.flat()){const pcs=chordPcs(it.name);
     const key=pcs.map(p=>p.pc).sort().join(",");const last=out[out.length-1];
-    if(last&&last.key===key){last.els.push(el);continue;}           // same chord again: one step
-    const t=new Array(12).fill(0);pcs.forEach(p=>t[p.pc]=p.w);const n=Math.hypot(...t);
-    out.push({name:el.dataset.c,key,els:[el],tpl:t.map(v=>v/n)});}
+    if(last&&last.key===key){if(!last.els.includes(it.el))last.els.push(it.el);continue;} // same chord again: one step
+    const t=new Array(12).fill(0);pcs.forEach(p=>t[p.pc]=p.w);const nn=Math.hypot(...t);
+    out.push({name:it.name,key,els:[it.el],pass:it.pass,tpl:t.map(v=>v/nn)});}
   return out;
 }
 window.__afterRender=function(){seq=buildSeq();if(cur>=seq.length)cur=Math.max(0,seq.length-1);if(listening)mark();};
-function mark(){document.querySelectorAll(".ch.now").forEach(e=>e.classList.remove("now"));const g=seq[cur];if(g)g.els[0].classList.add("now");}
-function jumpTo(el){const i=seq.findIndex(g=>g.els.includes(el));if(i>=0){cur=i;cand=-1;mark();holdUntil=0;}}
+function mark(){document.querySelectorAll(".ch.now").forEach(e=>{e.classList.remove("now");delete e.dataset.pass;});const g=seq[cur];
+  if(g){g.els[0].classList.add("now");if(g.pass)g.els[0].dataset.pass=g.pass;}
+  const pv=$("passV");if(pv)pv.textContent=g&&g.pass?"Repeat "+g.pass.replace("/"," of "):"";}
+// tapping a chord that is played more than once jumps to the time nearest where you are
+function jumpTo(el){let best=-1;seq.forEach((g,i)=>{if(g.els.includes(el)&&(best<0||Math.abs(i-cur)<Math.abs(best-cur)||(Math.abs(i-cur)===Math.abs(best-cur)&&i>best)))best=i;});
+  if(best>=0){cur=best;cand=-1;mark();holdUntil=0;}}
 async function startListen(){
   if(listening)return;stopScroll();
   if(!seq.length){$("listenMsg").textContent="This song has no chords to follow.";$("listenRow").hidden=false;barSize();return;}
